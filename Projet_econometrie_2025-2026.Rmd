@@ -1,0 +1,234 @@
+---
+title: "Projet_économétrie_Lantz"
+author: "Lucie"
+date: "2026-01-12"
+output: html_document
+---
+# Introduction 
+Expliquer : 
+- pourquoi la consommation de viande est un sujet pertinent
+- pourquoi les USA
+- intuition économique de la demande
+
+La consommation de viande constitue un enjeu économique majeur aux États-Unis, tant du point de vue des ménages que des politiques agricoles et environnementales (+ infos). Ce projet vise à estimer une fonction de demande agrégée de viande aux États-Unis à partir de données macroéconomiques annuelles, puis à réaliser des prévisions de consommation à l’horizon 2030.
+
+## Consigne : 
+Construire une fonction de demande de viande aux États-Unis, puis prévoir la consommation jusqu’en 2030, avec :
+- tests économétriques complets
+- intervalles de confiance pour les prévisions
+--> construction d'une fonction de demande agrégée ? 
+
+
+## Préparation de la session R 
+```{r, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(car)
+library(readxl)
+library(lmtest)
+library(sandwich)
+library(strucchange)
+```
+
+## Importer et préparer les données
+Les données utilisées sont annuelles et couvrent la période 2004–2024. La consommation de viande est issue de l’USDA Economic Research Service (ERS), qui fournit des statistiques détaillées sur les produits animaux aux États-Unis.  
+Les données de PIB et de population proviennent de la Banque mondiale (World Bank).  
+L’indice des prix à la consommation ainsi que le prix moyen du bœuf sont extraits de la base FRED de la Federal Reserve Bank of St. Louis.
+L’utilisation de sources institutionnelles garantit la fiabilité et la cohérence des séries statistiques employées dans l’analyse économétrique. 
+La consommation de viande est mesurée en milliards de livres (retail equivalent of disappearance). Les variables explicatives incluent le PIB, la population, l’indice des prix à la consommation et le prix moyen du bœuf.
+```{r, include=FALSE}
+setwd("/Users/luciedeseguinspazzis/Desktop/EDDE/Cours/S1/Econométrie-Lantz/Projet/Projet_OB1_2025-2026") # set working directory  
+getwd() # vérifie le working directory  
+list.files() # regarde les différents fichiers 
+cv_usa <- read_excel("CV_USA.xlsx") # charge le fichier excel et nouveau nom cv_usa
+```
+
+## Transformation logarithmique
+```{r, include=TRUE}
+# Transformation logarithmique pour obtenir des élasticités
+cv_usa <- cv_usa %>%
+  mutate(
+    ln_CV   = log(CV),
+    ln_PIB  = log(PIB),
+    ln_POP  = log(Population),
+    ln_CPI  = log(CPI),
+    ln_BEEF = log(Beef_price),
+    ln_CV_pc = log(CV / Population),
+    ln_PIB_pc = log(PIB / Population)
+  )
+
+plot(cv_usa$Year, cv_usa$ln_CV, type="l", main="Log consommation de viande") # ok ça a l'air un peu bizarre - grosse chute de la consommation de viande en 2015. Pourquoi ? Comment est-ce qu'on l'explique ?
+```
+
+# Problèmes 
+## Problème de multicollinéarité
+Nous testons la multicolinéarité avec le VIF (Variance Inflation Factor). Les valeurs supérieures à 10 indiquent un problème sérieux, ce qui justifie l’utilisation de variables par habitant et de prix réels.
+```{r, include=TRUE}
+cor(cv_usa[,c("ln_CV","ln_PIB","ln_POP","ln_CPI","ln_BEEF")]) # regarde la multicolinéarité 
+cv_usa$ln_CV_pc  <- log(cv_usa$CV / cv_usa$Population)
+cv_usa$ln_PIB_pc <- log(cv_usa$PIB / cv_usa$Population)
+
+model_pc <- lm(ln_CV_pc ~ ln_PIB_pc + ln_BEEF, data=cv_usa)
+summary(model_pc)
+
+vif(model_pc) # on vérifie le facteur d'inflation de la variance (FIV)
+# on essaie de corriger la multicollinéarité entre le PIB et le prix réel de la viande 
+cv_usa$PIB_pc <- cv_usa$PIB / cv_usa$Population
+cv_usa$Beef_real <- cv_usa$Beef_price / cv_usa$CPI
+cv_usa$ln_PIB_pc <- log(cv_usa$PIB_pc) # on passe en log 
+cv_usa$ln_BEEF_real <- log(cv_usa$Beef_real)
+# construction du modèle 
+model_pc <- lm(ln_CV ~ ln_PIB_pc + ln_BEEF_real, data=cv_usa)
+summary(model_pc)
+vif(model_pc)
+```
+
+# Problème d'autocorrelation 
+```{r setup, include=TRUE}
+library(lmtest)
+dwtest(model_pc) # nope toujours bcp d'autocorelation 
+
+# Modèle dynamique avec variable dépendante retardée
+cv_usa$PIB_pc <- cv_usa$PIB / cv_usa$Population
+cv_usa$Beef_real <- cv_usa$Beef_price / cv_usa$CPI
+cv_usa$ln_CV_lag <- dplyr::lag(cv_usa$ln_CV, 1)
+cv_usa$ln_CV   <- log(cv_usa$CV)
+cv_usa$ln_PIB_pc <- log(cv_usa$PIB_pc)
+cv_usa$ln_BEEF_real <- log(cv_usa$Beef_real)
+model_dyn <- lm(ln_CV ~ ln_CV_lag + ln_PIB_pc + ln_BEEF_real, data=cv_usa)
+summary(model_dyn)
+dwtest(model_dyn)
+
+coeftest(model_dyn, vcov = NeweyWest(model_dyn, lag = 1))
+```
+
+# Problème d'hétéroscédasticité 
+Le test de Breusch-Pagan indique une hétéroscédasticité, corrigée avec des erreurs standards robustes (type HC1) pour obtenir des tests de significativité fiables.
+```{r}
+bptest(model_dyn)
+
+# Correction 
+coeftest(model_dyn, vcov = vcovHC(model_dyn, type = "HC1"))
+```
+# Test de stabilité temporelle 
+```{r}
+sctest(model_dyn, type = "OLS-CUSUM")
+```
+
+# Prédiction 2030 
+```{r pressure, echo=TRUE}
+# PIB par habitant et prix réel du bœuf
+cv_usa$PIB_pc <- cv_usa$PIB / cv_usa$Population
+cv_usa$Beef_real <- cv_usa$Beef_price / cv_usa$CPI
+
+# Régression linéaire sur le temps pour projeter les variables
+model_PIB_pc <- lm(log(PIB_pc) ~ Year, data=cv_usa)
+model_Beef_real <- lm(log(Beef_real) ~ Year, data=cv_usa)
+
+# Années futures
+years_future <- 2025:2030
+
+# Prévisions des variables explicatives
+ln_PIB_pc_future <- predict(model_PIB_pc, newdata = data.frame(Year = years_future))
+ln_Beef_real_future <- predict(model_Beef_real, newdata = data.frame(Year = years_future))
+
+years_future_df <- data.frame(
+  ln_PIB_pc = ln_PIB_pc_future,
+  ln_BEEF_real = ln_Beef_real_future
+)
+
+library(sandwich)
+library(lmtest)
+
+n_future <- length(years_future)
+pred_dyn <- numeric(n_future)
+pred_lower <- numeric(n_future)
+pred_upper <- numeric(n_future)
+
+# Valeur initiale : dernière observation
+last_ln_CV <- tail(cv_usa$ln_CV, 1)
+
+# Fonction pour calculer intervalle de confiance
+predict_dyn_ci <- function(model, newdata, level = 0.95){
+  preds <- predict(model, newdata = newdata, interval = "confidence", level = level)
+  return(preds)
+}
+
+for (i in 1:n_future){
+  if(i == 1){
+    newdata <- data.frame(
+      ln_CV_lag = last_ln_CV,
+      ln_PIB_pc = years_future_df$ln_PIB_pc[i],
+      ln_BEEF_real = years_future_df$ln_BEEF_real[i]
+    )
+  } else {
+    newdata <- data.frame(
+      ln_CV_lag = pred_dyn[i-1],
+      ln_PIB_pc = years_future_df$ln_PIB_pc[i],
+      ln_BEEF_real = years_future_df$ln_BEEF_real[i]
+    )
+  }
+  ci <- predict_dyn_ci(model_dyn, newdata)
+  pred_dyn[i] <- ci[1]
+  pred_lower[i] <- ci[2]
+  pred_upper[i] <- ci[3]
+}
+
+# Transformer en consommation réelle
+CV_future <- exp(pred_dyn)
+CV_lower <- exp(pred_lower)
+CV_upper <- exp(pred_upper)
+
+# Résultat final
+prediction_table <- data.frame(
+  Year = years_future,
+  Predicted_CV = CV_future,
+  Lower_CI = CV_lower,
+  Upper_CI = CV_upper
+)
+
+prediction_table
+
+# Graph
+library(ggplot2)
+
+# Combiner données historiques et prévisions pour le graphique
+cv_plot <- data.frame(
+  Year = c(cv_usa$Year, prediction_table$Year),
+  CV = c(cv_usa$CV, prediction_table$Predicted_CV),
+  Type = c(rep("Historique", nrow(cv_usa)), rep("Prévision", nrow(prediction_table))),
+  Lower_CI = c(rep(NA, nrow(cv_usa)), prediction_table$Lower_CI),
+  Upper_CI = c(rep(NA, nrow(cv_usa)), prediction_table$Upper_CI)
+)
+
+# Graphique
+ggplot(cv_plot, aes(x = Year, y = CV, color = Type)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = Lower_CI, ymax = Upper_CI, fill = Type),
+              data = subset(cv_plot, Type == "Prévision"),
+              alpha = 0.2, color = NA) +
+  scale_color_manual(values = c("Historique" = "skyblue", "Prévision" = "blue4")) +
+  scale_fill_manual(values = c("Prévision" = "blue4")) +
+  labs(
+    title = "Consommation de viande aux États-Unis : historique et prévisions jusqu'en 2030",
+    x = "Année",
+    y = "Consommation (milliards de livres)",
+    color = "Données",
+    fill = "Intervalle de confiance"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top")
+
+
+```
+
+# Points de discussion 
+21 observations seulement -> c’est très peu -> conséquences : faible puissance statistique, eg p-values élevées = normal
+
+# Conclusion 
+L’analyse économétrique met en évidence une forte inertie de la consommation de viande aux États-Unis. Les variables macroéconomiques traditionnelles apparaissent peu significatives à court terme, ce qui reflète la maturité du marché. Les prévisions réalisées à l’horizon 2030 suggèrent une évolution modérée de la consommation, avec des intervalles de confiance relativement étroits.
+L’analyse économétrique montre que la consommation de viande aux États-Unis est fortement inertielle. Les prévisions jusqu’en 2030 indiquent une évolution modérée, avec une sensibilité limitée aux variations de prix et de PIB à court terme. La robustesse du modèle est renforcée par les corrections d’autocorrélation et d’hétéroscédasticité.
+
+
+
+
