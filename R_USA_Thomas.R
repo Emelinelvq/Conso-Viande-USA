@@ -1,5 +1,4 @@
 #lets go pour une bonne tranche de fun
-
 install.packages("readxl")
 install.packages("lmtest")
 install.packages("tseries")
@@ -115,19 +114,58 @@ modele_ridge$lambda.1se #l'erreur est à moins d'un écart type du minimum, coef
 coef(modele_ridge, s = "lambda.1se")
 
 #voici comment utiliser le modèle pour faire une prédiction:
-CV_pred <- predict(modele_ridge, newx = X, s = "lambda.1se")
+CV_pred <- predict(modele_ridge, newx = X_log, s = "lambda.1se")
 
 #Partie 3 quelques test possible sur notre petite regression ridge
 rmse <- sqrt(mean((CV_log - CV_pred)^2))
 rmse # RMSE = 0.348  pas dégueu
 
-r2 <- 1 - sum((CV_log - CV_pred)^2) / sum((CV_log - mean(CV_log))^2)Message d'avis :
-Option grouped=FALSE enforced in cv.glmnet, since < 3 observations per fold i
+r2 <- 1 - sum((CV_log - CV_pred)^2) / sum((CV_log - mean(CV_log))^2)
 r2 #le R²=0.3485 est nul à chier on explique rien du tout avec le modèle, starfula c'est la sauce !!
 
 #Déterminons maintenant un intervalle de confince pour notre joli modèle, par une méthode de bootstrap percentile-t avec un intervalle de confiance basé sur une statistique pivot (je cite le prof)
 
-#c'est galère et j'ai mal à la tête je m'y attèle plus tard 
+# Bootstrap
+B <- 1000
+pred_boot <- matrix(NA, nrow = B, ncol = nrow(X_log))  # on stocke la prédiction pour chaque obs
+
+set.seed(123)
+for(b in 1:B){
+  # Tirage bootstrap
+  idx <- sample(1:nrow(X_log), replace = TRUE)
+  Xb <- X_log[idx, ]
+  yb <- CV_log[idx]
+  
+  # Ajustement Ridge
+  cvb <- cv.glmnet(Xb, yb, alpha = 0, nfolds = 5)
+  
+  # Prédiction pour les mêmes observations (jeu original)
+  pred_boot[b, ] <- predict(cvb, newx = X_log, s = "lambda.1se")
+}
+
+# Calcul IC 95% (percentile)
+ci_lower <- apply(pred_boot, 2, quantile, probs = 0.025)
+ci_upper <- apply(pred_boot, 2, quantile, probs = 0.975)
+
+# Résultat final
+result <- data.frame(
+  CV_orig = CV_log,
+  pred_mean = apply(pred_boot, 2, mean),
+  ci_lower = ci_lower,
+  ci_upper = ci_upper
+)
+result
+
+#la moyenne pour avoir un intervalle de confiance pour notre modèle
+#y'a bcp de Chat GPT dans cette partie, il faut être vigilant mais je galère avec le R pr tout relire et être sur de moi
+pred_mean_global <- mean(result$pred_mean)
+ci_lower_global <- mean(result$ci_lower)
+ci_upper_global <- mean(result$ci_upper)
+
+#Partie 4
+#Réussir à trouver comment obtenir des prévisions jusqu'à 2030 pour pouvoir faire nos prévision avec ce super modèle au R² dégueu !
+
+ 
 
 
 
