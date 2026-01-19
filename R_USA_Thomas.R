@@ -24,11 +24,20 @@ data_log$Population <- log(data$Population)
 data_log$CPI <- log(data$CPI)
 data_log$Beef_price <- log(data$Beef_price)
 
-#test de la multicolinéarité (VIF)
+#variable reel plutôt que nominal car c'est encore mieux
+data_reel <- data
+data_reel$CV <- log(data$CV/(data$CPI/100))
+data_reel$PIB <- log(data$PIB/(data$Population*(data$CPI/100)))
+data_reel$Beef_price <- log(data$Beef_price/(data$CPI/100))
+
+#mettons tout ce joli monde dans une matrice
+X_reel <- model.matrix(CV ~ PIB +  Beef_price, data = data_reel)[, -1]
+CV_reel <- data_reel$CV
 
 # ---- 2. Création du modèle de régression multiple ----
 modele <- lm(CV ~ PIB + Population + CPI + Beef_price, data = data)
 modele_log <- lm(CV ~ PIB + Population + CPI + Beef_price, data = data_log)
+modele_reel <- lm(CV ~ PIB + Beef_price, data = data_reel)
 
 
 # Résumé du modèle
@@ -39,6 +48,11 @@ summary(modele)
 summary(modele_log)
 #ça change des trucs et plusieurs paramètres perdent en importance
 
+summary(modele_reel)
+CV_pred_reel <- predict(modele_reel, newx = X_reel)
+r2 <- 1 - sum((CV_reel - CV_pred_reel)^2) / sum((CV_reel - mean(CV_reel))^2)
+r2
+
 #Bon ba c'est bien bô mais la partie en dessous ne marche pas pk on a de la multicolinéarité dans les données, aller à la partie 2 plus bas
 #test du modèle par la méthode des moindres carrés généralisées (ccl chap 2)
 #ATTEBNTION ça marche que si il n'y a pas de multicolinéarité dans les données, à voir avec l'autre team (intro chap 3)
@@ -47,14 +61,20 @@ dwtest(modele)
 dwtest(modele_log)
 #y'a de l'autocorrélation starfoula !! car p-value < 0.05, et dans les 2 cas
 
+dwtest(modele_reel)
+#y'a pas tant d'utocorrélation que ça ...
+
 #on test l'hétéroscédasticité
 bptest(modele)
 bptest(modele_log)
+bptest(modele_reel)
 #bonne nouvelle on est homoscédastique (Breusch-Pagan)
 
 #visualisation de tout ça 
 plot(modele, which = 1)
 plot(modele_log, which = 1)
+plot(modele_reel, wich = 1)
+
 #on observe la belle tendance à la courbure des résidut qui fait chier !!
 
 #vérifions la normalité des résidus ensuite
@@ -71,11 +91,22 @@ jarque.bera.test(residuals(modele_log))
 qqnorm(residuals(modele_log))
 qqline(residuals(modele_log))
 
-#Attention, je poursuis désormais que avec les log car ils sont mieux, cf : juste au dessus
+jarque.bera.test(residuals(modele_reel))
+#en log le test dit que les résidus sont normaux, c'est une super nouvelle, continuons donc avec des log car c'est cool
+qqnorm(residuals(modele_reel))
+qqline(residuals(modele_reel))
+
+#Attention, je poursuis désormais que avec les log car ils sont mieux, voir même les log en valeur reel, cf : juste au dessus
 
 #On test ensuite la stabilité temporelle (Cusum)
-cusum   <- efp(CV ~ PIB + Population + CPI + Beef_price, data = data_log, type = "Rec-CUSUM")
+cusum <- efp(CV ~ PIB + Beef_price, data = data_reel, type = "Rec-CUSUM")
+
 plot(cusum)
+#on observe une forte rupture de tendance 
+#on fait donc un test de Chow pour 2011, date de la rupture
+sctest(CV_reel ~ X_reel, type="Chow", point = 7)
+#p-value = 8.44e-06, il y a donc bien une rupture temporelle (mais aussi en 2006 et 2005, genre ttes les dates avant 2007 donc à voir quoi en dire et surtout à voir le Cusumsquare)
+
 #Test (Cusum Square) plus fiable d'après le cours
 #rr <- (recresid(data_log$CV, modele_log))
 #rr <- -rr^2 
@@ -83,19 +114,15 @@ plot(cusum)
 #le prof le fait avec des matrice et pas des dataset et je suis quand même tjs un brêle en R qu'on ne l'oublie pas donc si qql arrive à le faire je suis chaud patate !!
 
 #RESUME :
-#On a de l'autocorrélation mais pas d'hétéroscédasticité, les résidus sont normaux avec le log et il semble qu'on soit stable temporellement mais à préciser avec un vrai cusum square
+#On a de l'autocorrélation mais pas d'hétéroscédasticité, les résidus sont normaux avec le log et il semble y avoir une rupture temporelle vers 2007 mais je sais pas trop quoi faire. 
 #Malheureusement on a de la multicolinéarité et donc il faut faire une regression Ridge, c'est ce qui est fait en dessous
 
 #Partie 2
 #on attaque une petite régression ridge des familles
 
-#mettons tout ce joli monde dans une matrice
-X_log <- model.matrix(CV ~ PIB + Population + CPI + Beef_price, data = data_log)[, -1]
-CV_log <- data_log$CV
-
 set.seed(123)
 modele_ridge <- cv.glmnet(
-  X_log, CV_log,
+  X_reel, CV_reel,
   alpha = 0,        # Ridge
   nfolds = 5, #sinon pas assez de données par folds
   standardize = TRUE
@@ -111,36 +138,36 @@ modele_ridge$lambda.min #minimise l'erreur moyenne de validation croisée, varia
 modele_ridge$lambda.1se #l'erreur est à moins d'un écart type du minimum, coef plus petit, plus faible variance
 
 #Et nvoici les coefs
-coef(modele_ridge, s = "lambda.1se")
-
+coefs <- coef(modele_ridge, s = "lambda.1se")
+coefs
 #voici comment utiliser le modèle pour faire une prédiction:
-CV_pred <- predict(modele_ridge, newx = X_log, s = "lambda.1se")
+CV_pred <- predict(modele_ridge, newx = X_reel, s = "lambda.1se")
 
 #Partie 3 quelques test possible sur notre petite regression ridge
-rmse <- sqrt(mean((CV_log - CV_pred)^2))
+rmse <- sqrt(mean((CV_reel - CV_pred)^2))
 rmse # RMSE = 0.348  pas dégueu
 
-r2 <- 1 - sum((CV_log - CV_pred)^2) / sum((CV_log - mean(CV_log))^2)
-r2 #le R²=0.3485 est nul à chier on explique rien du tout avec le modèle, starfula c'est la sauce !!
+r2 <- 1 - sum((CV_reel - CV_pred)^2) / sum((CV_reel - mean(CV_reel))^2)
+r2 #0.536 pas dégueu y'a des chose à dire
 
 #Déterminons maintenant un intervalle de confince pour notre joli modèle, par une méthode de bootstrap percentile-t avec un intervalle de confiance basé sur une statistique pivot (je cite le prof)
 
 # Bootstrap
 B <- 1000
-pred_boot <- matrix(NA, nrow = B, ncol = nrow(X_log))  # on stocke la prédiction pour chaque obs
+pred_boot <- matrix(NA, nrow = B, ncol = nrow(X_reel))  # on stocke la prédiction pour chaque obs
 
 set.seed(123)
 for(b in 1:B){
   # Tirage bootstrap
   idx <- sample(1:nrow(X_log), replace = TRUE)
-  Xb <- X_log[idx, ]
-  yb <- CV_log[idx]
+  Xb <- X_reel[idx, ]
+  yb <- CV_reel[idx]
   
   # Ajustement Ridge
   cvb <- cv.glmnet(Xb, yb, alpha = 0, nfolds = 5)
   
   # Prédiction pour les mêmes observations (jeu original)
-  pred_boot[b, ] <- predict(cvb, newx = X_log, s = "lambda.1se")
+  pred_boot[b, ] <- predict(cvb, newx = X_reel, s = "lambda.1se")
 }
 
 # Calcul IC 95% (percentile)
@@ -149,7 +176,7 @@ ci_upper <- apply(pred_boot, 2, quantile, probs = 0.975)
 
 # Résultat final
 result <- data.frame(
-  CV_orig = CV_log,
+  CV_orig = CV_reel,
   pred_mean = apply(pred_boot, 2, mean),
   ci_lower = ci_lower,
   ci_upper = ci_upper
@@ -162,6 +189,9 @@ pred_mean_global <- mean(result$pred_mean)
 ci_lower_global <- mean(result$ci_lower)
 ci_upper_global <- mean(result$ci_upper)
 
+pred_mean_global
+ci_lower_global
+ci_upper_global
 #Partie 4
 #Réussir à trouver comment obtenir des prévisions jusqu'à 2030 pour pouvoir faire nos prévision avec ce super modèle au R² dégueu !
 
