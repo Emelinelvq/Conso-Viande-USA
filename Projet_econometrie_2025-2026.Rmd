@@ -21,6 +21,9 @@ Construire une fonction de demande de viande aux États-Unis, puis prévoir la c
 
 ## Préparation de la session R 
 ```{r, include=FALSE}
+# Ouverture des librairies 
+remove.packages("readxl")
+install.packages("readxl", type = "source")
 library(tidyverse)
 library(dplyr)
 library(car)
@@ -37,16 +40,19 @@ L’indice des prix à la consommation ainsi que le prix moyen du bœuf sont ext
 L’utilisation de sources institutionnelles garantit la fiabilité et la cohérence des séries statistiques employées dans l’analyse économétrique. 
 La consommation de viande est mesurée en milliards de livres (retail equivalent of disappearance). Les variables explicatives incluent le PIB, la population, l’indice des prix à la consommation et le prix moyen du bœuf.
 ```{r, include=FALSE}
+# Importation des données 
+# !! à changer pour que ça soit lié au repositery 
 setwd("/Users/luciedeseguinspazzis/Desktop/EDDE/Cours/S1/Econométrie-Lantz/Projet/Projet_OB1_2025-2026") # set working directory  
 getwd() # vérifie le working directory  
 list.files() # regarde les différents fichiers 
 cv_usa <- read_excel("CV_USA.xlsx") # charge le fichier excel et nouveau nom cv_usa
+names(cv_usa)
 ```
 
 ## Transformation logarithmique
 ```{r, include=TRUE}
-# Transformation logarithmique pour obtenir des élasticités
-cv_usa <- cv_usa %>%
+# Transformation logarithmique pour obtenir des élasticités + hypothèse de normalité + hypothèse de variance constante
+cv_usa_log <- cv_usa %>%
   mutate(
     ln_CV   = log(CV),
     ln_PIB  = log(PIB),

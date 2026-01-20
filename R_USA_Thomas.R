@@ -10,6 +10,12 @@ library(tseries)
 library(glmnet)
 library(strucchange)
 
+# setwd("/Users/luciedeseguinspazzis/Desktop/EDDE/Cours/S1/Econométrie-Lantz/Projet/Projet_OB1_2025-2026") # set working directory
+# getwd() # vérifie le working directory
+# list.files() # regarde les différents fichiers
+# data <- read_excel("CV_USA.xlsx") # charge le fichier excel et nouveau nom cv_usa
+# names(cv_usa)
+
 data <- read_excel("CV_USA.xlsx")
 head(data)
 
@@ -107,11 +113,39 @@ plot(cusum)
 sctest(CV_reel ~ X_reel, type="Chow", point = 7)
 #p-value = 8.44e-06, il y a donc bien une rupture temporelle (mais aussi en 2006 et 2005, genre ttes les dates avant 2007 donc à voir quoi en dire et surtout à voir le Cusumsquare)
 
-#Test (Cusum Square) plus fiable d'après le cours
-#rr <- (recresid(data_log$CV, modele_log))
-#rr <- -rr^2 
-#cumrr <- -cumsum(rr)/scr
-#le prof le fait avec des matrice et pas des dataset et je suis quand même tjs un brêle en R qu'on ne l'oublie pas donc si qql arrive à le faire je suis chaud patate !!
+# Test (Cusum Square) plus fiable d'après le cours
+rr <- (recresid(data_log$CV, modele_log))
+rr <- -rr^2
+cumrr <- -cumsum(rr)/scr
+# le prof le fait avec des matrice et pas des dataset et je suis quand même tjs un brêle en R qu'on ne l'oublie pas donc si qql arrive à le faire je suis chaud patate !!
+
+# Lucie vas-y je test
+# CUMSUMSQ - test stabilité des coefficients du modèle dans le temps
+y <- as.matrix(data_log$CV) # variable expliquée 
+X <- cbind(
+  1,                       # constante
+  data_log$PIB,            # on ajoute les variables explicatives 
+  data_log$Population,
+  data_log$CPI,
+  data_log$Beef_price
+)
+w <- recresid(y, X)       # résidus récursifs
+CUSUMSQ <- cumsum(w^2) / sum(w^2) # construction du cusumsq
+nrow(X) == length(y) # check de sécurité --> TRUE donc c'est bon pas de pb de longueur ou de NA 
+X <- as.matrix(X)
+y <- as.matrix(y)
+
+# visualisation graphique 
+plot(CUSUMSQ,
+     type = "l",
+     lwd = 2,
+     ylab = "CUSUM of Squares",
+     xlab = "Temps",
+     main = "Test CUSUMSQ – Stabilité du modèle")
+
+abline(h = c(0.05, 0.95), lty = 2, col = "red")
+# la courbe ne reste en pas entre les bornes - ça veut dire pas de stabilité du modèle 
+# --> rupture structurelle --> au moins un coefficient change dans le temps
 
 #RESUME :
 #On a de l'autocorrélation mais pas d'hétéroscédasticité, les résidus sont normaux avec le log et il semble y avoir une rupture temporelle vers 2007 mais je sais pas trop quoi faire. 
@@ -128,9 +162,12 @@ modele_ridge <- cv.glmnet(
   standardize = TRUE
 )
 #message d'avis mettant standardize = False car on a moins de 3 obs par fold, mais normalement non donc je suis pas sur de tout
+# pourquoi tu veux pas mettre Population et CPI comme variables ? 
 
 plot(modele_ridge)
 #le plot est joli mais jsp ce que ça signifie
+coef(modele_ridge, s = "lambda.1se") # on utilise lambda.1se car le + utilisée en économie 
+# Attention les coefficients Ridge sont biaisés à cause de la pénalisation.
 
 #Validation croisée
 #les meilleurs coef ridge, en fait on a plein de coef possible variant en fonction de lambda et ici se sont les 2 lambda qui présentent les meilleurs caractéristiques de stabilioté
@@ -146,6 +183,7 @@ CV_pred <- predict(modele_ridge, newx = X_reel, s = "lambda.1se")
 #Partie 3 quelques test possible sur notre petite regression ridge
 rmse <- sqrt(mean((CV_reel - CV_pred)^2))
 rmse # RMSE = 0.348  pas dégueu
+# 0.091415 moi j'ai ça bizarre ...
 
 r2 <- 1 - sum((CV_reel - CV_pred)^2) / sum((CV_reel - mean(CV_reel))^2)
 r2 #0.536 pas dégueu y'a des chose à dire
@@ -192,9 +230,11 @@ ci_upper_global <- mean(result$ci_upper)
 pred_mean_global
 ci_lower_global
 ci_upper_global
+
 #Partie 4
 #Réussir à trouver comment obtenir des prévisions jusqu'à 2030 pour pouvoir faire nos prévision avec ce super modèle au R² dégueu !
-
+# Lucie - je pense que peut-être on peut regarder au moins des prévisions de l'état américain 
+#sur qqs variables qui vont nous permettre de dire au modèle dans quel direction il faut aller
  
 
 
