@@ -70,21 +70,21 @@ plot(cv_usa$Year, cv_usa$ln_CV, type="l", main="Log consommation de viande") # o
 ## Problème de multicollinéarité
 Nous testons la multicolinéarité avec le VIF (Variance Inflation Factor). Les valeurs supérieures à 10 indiquent un problème sérieux, ce qui justifie l’utilisation de variables par habitant et de prix réels.
 ```{r, include=TRUE}
-cor(cv_usa[,c("ln_CV","ln_PIB","ln_POP","ln_CPI","ln_BEEF")]) # regarde la multicolinéarité 
-cv_usa$ln_CV_pc  <- log(cv_usa$CV / cv_usa$Population)
-cv_usa$ln_PIB_pc <- log(cv_usa$PIB / cv_usa$Population)
+cor(cv_usa_log[,c("ln_CV","ln_PIB","ln_POP","ln_CPI","ln_BEEF")]) # regarde la multicolinéarité 
+cv_usa_log$ln_CV_pc  <- log(cv_usa_log$CV / cv_usa_log$Population)
+cv_usa_log$ln_PIB_pc <- log(cv_usa_log$PIB / cv_usa_log$Population)
 
-model_pc <- lm(ln_CV_pc ~ ln_PIB_pc + ln_BEEF, data=cv_usa)
+model_pc <- lm(ln_CV_pc ~ ln_PIB_pc + ln_BEEF, data=cv_usa_log)
 summary(model_pc)
 
 vif(model_pc) # on vérifie le facteur d'inflation de la variance (FIV)
 # on essaie de corriger la multicollinéarité entre le PIB et le prix réel de la viande 
-cv_usa$PIB_pc <- cv_usa$PIB / cv_usa$Population
-cv_usa$Beef_real <- cv_usa$Beef_price / cv_usa$CPI
-cv_usa$ln_PIB_pc <- log(cv_usa$PIB_pc) # on passe en log 
-cv_usa$ln_BEEF_real <- log(cv_usa$Beef_real)
+cv_usa_log$PIB_pc <- cv_usa_log$PIB / cv_usa_log$Population
+cv_usa_log$Beef_real <- cv_usa_log$Beef_price / cv_usa_log$CPI
+cv_usa_log$ln_PIB_pc <- log(cv_usa_log$PIB_pc) # on passe en log 
+cv_usa_log$ln_BEEF_real <- log(cv_usa_log$Beef_real)
 # construction du modèle 
-model_pc <- lm(ln_CV ~ ln_PIB_pc + ln_BEEF_real, data=cv_usa)
+model_pc <- lm(ln_CV ~ ln_PIB_pc + ln_BEEF_real, data=cv_usa_log)
 summary(model_pc)
 vif(model_pc)
 ```
@@ -95,26 +95,24 @@ library(lmtest)
 dwtest(model_pc) # nope toujours bcp d'autocorelation 
 
 # Modèle dynamique avec variable dépendante retardée
-cv_usa$PIB_pc <- cv_usa$PIB / cv_usa$Population
-cv_usa$Beef_real <- cv_usa$Beef_price / cv_usa$CPI
-cv_usa$ln_CV_lag <- dplyr::lag(cv_usa$ln_CV, 1)
-cv_usa$ln_CV   <- log(cv_usa$CV)
-cv_usa$ln_PIB_pc <- log(cv_usa$PIB_pc)
-cv_usa$ln_BEEF_real <- log(cv_usa$Beef_real)
-model_dyn <- lm(ln_CV ~ ln_CV_lag + ln_PIB_pc + ln_BEEF_real, data=cv_usa)
+cv_usa_log$PIB_pc <- cv_usa_log$PIB / cv_usa_log$Population
+cv_usa_log$Beef_real <- cv_usa_log$Beef_price / cv_usa_log$CPI
+cv_usa_log$ln_CV_lag <- dplyr::lag(cv_usa_log$ln_CV, 1)
+cv_usa_log$ln_CV   <- log(cv_usa_log$CV)
+cv_usa_log$ln_PIB_pc <- log(cv_usa_log$PIB_pc)
+cv_usa_log$ln_BEEF_real <- log(cv_usa_log$Beef_real)
+model_dyn <- lm(ln_CV ~ ln_CV_lag + ln_PIB_pc + ln_BEEF_real, data=cv_usa_log)
 summary(model_dyn)
 dwtest(model_dyn)
+bgtest(model_dyn)
 
 coeftest(model_dyn, vcov = NeweyWest(model_dyn, lag = 1))
 ```
 
 # Problème d'hétéroscédasticité 
-Le test de Breusch-Pagan indique une hétéroscédasticité, corrigée avec des erreurs standards robustes (type HC1) pour obtenir des tests de significativité fiables.
+Le test de Breusch-Pagan n'indique pas d'hétéroscédasticité. 
 ```{r}
-bptest(model_dyn)
-
-# Correction 
-coeftest(model_dyn, vcov = vcovHC(model_dyn, type = "HC1"))
+bptest(model_dyn) # pas d'hétérogénéité
 ```
 # Test de stabilité temporelle 
 ```{r}

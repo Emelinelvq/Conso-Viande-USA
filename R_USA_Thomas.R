@@ -10,6 +10,7 @@ library(tseries)
 library(glmnet)
 library(strucchange)
 
+# pour Lucie pour load les données sinon ça marche pas 
 # setwd("/Users/luciedeseguinspazzis/Desktop/EDDE/Cours/S1/Econométrie-Lantz/Projet/Projet_OB1_2025-2026") # set working directory
 # getwd() # vérifie le working directory
 # list.files() # regarde les différents fichiers
