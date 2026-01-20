@@ -69,7 +69,19 @@ dwtest(modele_log)
 #y'a de l'autocorrélation starfoula !! car p-value < 0.05, et dans les 2 cas
 
 dwtest(modele_reel)
-#y'a pas tant d'utocorrélation que ça ...
+#y'a pas tant d'autocorrélation que ça ...
+dwtest(modele_reel)  # test de Durbin Watson 
+bgtest(modele_reel)  # test de Breusch-Godfrey
+# correction
+coeftest(modele_reel, vcov = NeweyWest(model_dyn, lag = 1)) # corrige les erreurs-types pour autocorrélation d’ordre 1 et hétéroscédasticité
+
+# test de correction 
+data_reel$CV_lag1 <- c(NA, head(data_reel$CV, -1))
+modele_ar1 <- lm(CV ~ PIB + Beef_price + CV_lag1, 
+                 data = data_reel, 
+                 na.action = na.exclude)
+summary(modele_ar1)
+bgtest(modele_ar1, order = 1) # plus de autocorrélation 
 
 #on test l'hétéroscédasticité
 bptest(modele)
@@ -83,6 +95,11 @@ plot(modele_log, which = 1)
 plot(modele_reel, wich = 1)
 
 #on observe la belle tendance à la courbure des résidut qui fait chier !!
+
+# on test la multicollinéarité  
+vif(modele)
+vif(modele_log)
+vif(modele_reel)
 
 #vérifions la normalité des résidus ensuite
 jarque.bera.test(residuals(modele))
@@ -114,12 +131,6 @@ plot(cusum)
 sctest(CV_reel ~ X_reel, type="Chow", point = 7)
 #p-value = 8.44e-06, il y a donc bien une rupture temporelle (mais aussi en 2006 et 2005, genre ttes les dates avant 2007 donc à voir quoi en dire et surtout à voir le Cusumsquare)
 
-# Test (Cusum Square) plus fiable d'après le cours
-rr <- (recresid(data_log$CV, modele_log))
-rr <- -rr^2
-cumrr <- -cumsum(rr)/scr
-# le prof le fait avec des matrice et pas des dataset et je suis quand même tjs un brêle en R qu'on ne l'oublie pas donc si qql arrive à le faire je suis chaud patate !!
-
 # Lucie vas-y je test
 # CUMSUMSQ - test stabilité des coefficients du modèle dans le temps
 y <- as.matrix(data_log$CV) # variable expliquée 
@@ -143,14 +154,69 @@ plot(CUSUMSQ,
      ylab = "CUSUM of Squares",
      xlab = "Temps",
      main = "Test CUSUMSQ – Stabilité du modèle")
-
 abline(h = c(0.05, 0.95), lty = 2, col = "red")
 # la courbe ne reste en pas entre les bornes - ça veut dire pas de stabilité du modèle 
 # --> rupture structurelle --> au moins un coefficient change dans le temps
 
+
+# test adaptaion code cours 
+n <- nrow(X)  # nombre d'observations
+k <- ncol(X)-1
+# Résidus récursifs
+rr <- recresid(y, X)
+
+# Carrés
+rr2 <- rr^2
+
+# Somme des carrés totale (pour normaliser)
+scr <- sum(rr2)
+
+# Statistique cumulé (r_s)
+cumrr <- cumsum(rr2)/scr
+
+# Indices
+nk1 <- n - k - 1
+kp2 <- k + 2
+t1 <- 1:nk1
+t2 <- (kp2):n
+
+# Valeur critique c0 (exemple pour alpha=0.05)
+c0 <- 0.18915  # à adapter si n ou k change
+
+# Limites inférieure et supérieure
+smin <- ((t2 - k) / (n - k)) - c0
+smax <- ((t2 - k) / (n - k)) + c0
+
+# On aligne les longueurs
+cumrr_trunc <- cumrr[kp2:n]  # pour que cumrr, smin et smax aient même longueur
+
+cusum2 <- cbind(smin, cumrr_trunc, smax)
+
+# Graphique final
+matplot(t2, cusum2, type = "l", lty = 1, col = c("red", "black", "red"),
+        xlab = "Observations", ylab = "CUSUMSQ",
+        main = "Test CUSUM of Squares")
+legend("topleft", legend=c("smin","cumrr","smax"),
+       col=c("red","black","red"), lty=1)
 #RESUME :
 #On a de l'autocorrélation mais pas d'hétéroscédasticité, les résidus sont normaux avec le log et il semble y avoir une rupture temporelle vers 2007 mais je sais pas trop quoi faire. 
 #Malheureusement on a de la multicolinéarité et donc il faut faire une regression Ridge, c'est ce qui est fait en dessous
+
+# Dummy variable post2011
+# Création d’une variable dummy : 0 avant 2011, 1 à partir de 2011
+data_reel$post2011 <- ifelse(data_reel$Year >= 2011, 1, 0)
+modele_reel_dummy <- lm(CV ~ PIB + Beef_price + post2011, 
+                      data = data_reel)
+summary(modele_reel_dummy) # ça m'a l'air pas trop mal et reltivement cohérent enfin à part pour le prix de la viande
+
+# r2
+summary(modele_reel_dummy)$r.squared       # R² classique
+summary(modele_reel_dummy)$adj.r.squared   # R² ajusté (corrige le nombre de variables)
+
+# test: interaction pour capturer l’effet spécifique sur certaines variables
+modele_reel_dummy_inter <- lm(CV ~ PIB*post2011 + Beef_price*post2011, 
+                            data = data_reel)
+summary(modele_reel_dummy_inter) # je sais pas trop quoi en pensez c'est bizarre comme modèle 
 
 #Partie 2
 #on attaque une petite régression ridge des familles
@@ -178,6 +244,7 @@ modele_ridge$lambda.1se #l'erreur est à moins d'un écart type du minimum, coef
 #Et nvoici les coefs
 coefs <- coef(modele_ridge, s = "lambda.1se")
 coefs
+
 #voici comment utiliser le modèle pour faire une prédiction:
 CV_pred <- predict(modele_ridge, newx = X_reel, s = "lambda.1se")
 
@@ -198,7 +265,7 @@ pred_boot <- matrix(NA, nrow = B, ncol = nrow(X_reel))  # on stocke la prédicti
 set.seed(123)
 for(b in 1:B){
   # Tirage bootstrap
-  idx <- sample(1:nrow(X_log), replace = TRUE)
+  idx <- sample(1:nrow(X_log), replace = TRUE) # il vient d'où ce X_log 
   Xb <- X_reel[idx, ]
   yb <- CV_reel[idx]
   
@@ -231,6 +298,46 @@ ci_upper_global <- mean(result$ci_upper)
 pred_mean_global
 ci_lower_global
 ci_upper_global
+
+
+# Bootstrap avec modèle corrigé 
+B <- 1000  # nombre de répétitions
+n <- nrow(data_reel)
+pred_boot <- matrix(NA, nrow = B, ncol = n)  # pour stocker les prédictions de chaque bootstrap
+
+set.seed(123)
+
+for(b in 1:B){
+  # Tirage bootstrap avec remise
+  idx <- sample(1:n, replace = TRUE)
+  data_b <- data_reel[idx, ]
+  
+  # Ajustement du modèle sur l'échantillon bootstrap
+  model_b <- lm(CV ~ PIB + Beef_price + post2011, data = data_b)
+  
+  # Prédiction sur le jeu original
+  pred_boot[b, ] <- predict(model_b, newdata = data_reel)
+}
+
+# calcul des intervalles de confiance 
+# IC 95% pour chaque observation (percentile)
+ci_lower <- apply(pred_boot, 2, quantile, probs = 0.025)
+ci_upper <- apply(pred_boot, 2, quantile, probs = 0.975)
+
+# Moyenne des prédictions
+pred_mean <- apply(pred_boot, 2, mean)
+
+# 
+result <- data.frame(
+  CV_orig = data_reel$CV,
+  pred_mean = pred_mean,
+  ci_lower = ci_lower,
+  ci_upper = ci_upper
+)
+
+head(result)
+
+colSums(is.na(data_reel))
 
 #Partie 4
 #Réussir à trouver comment obtenir des prévisions jusqu'à 2030 pour pouvoir faire nos prévision avec ce super modèle au R² dégueu !
