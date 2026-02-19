@@ -1,0 +1,38 @@
+La consommation de viande aux États-Unis occupe une place centrale dans les dynamiques agroalimentaires mondiales, tant par son niveau élevé que par son influence sur les marchés internationaux. 
+Depuis l’après-guerre, les États-Unis figurent parmi les premiers producteurs et consommateurs mondiaux de viande bovine, porcine et avicole, avec des niveaux de consommation par habitant supérieurs à la moyenne des pays de l’OCDE. 
+Selon les rapports de la FAO (2025), la transition alimentaire observée au XXe siècle s’est traduite par une augmentation soutenue de la demande en protéines animales, portée par la croissance des revenus, l’urbanisation et les gains de productivité agricole.
+
+D’un point de vue économique, la demande de viande est étroitement liée au revenu disponible, aux prix relatifs et aux préférences des consommateurs (Hestermann, 2020). 
+Les travaux empiriques fondés sur des systèmes de demande montrent que les élasticités-revenu et prix diffèrent selon les types de viande, la volaille apparaissant généralement plus élastique que le bœuf (Luke, 2025). 
+Les analyses publiées par l’OCDE dans les Perspectives agricoles soulignent que la substitution entre viandes rouges et blanches s’est accentuée depuis les années 1980, sous l’effet combiné des prix relatifs, des préoccupations sanitaires et des innovations technologiques dans la filière avicole.
+
+Par ailleurs, les perturbations récentes des chaînes d’approvisionnement durant la pandémie de COVID-19 ont généré des hausses de prix et une volatilité accrue, confirmant les résultats de la Banque mondiale sur la transmission des chocs mondiaux aux marchés alimentaires domestiques (Erol, 2022).
+
+La dynamique des prix constitue un déterminant essentiel des fluctuations de consommation. 
+Les chocs pétroliers des années 1970 ont entraîné une hausse des coûts de production (alimentation animale, transport), répercutée partiellement sur les prix à la consommation. 
+Plus récemment, la crise financière de 2008 a affecté le pouvoir d’achat des ménages, conduisant à une réallocation vers des sources de protéines moins coûteuses (Glynn T, 2022).
+
+À moyen et long terme, les perspectives de consommation dépendent également des tendances démographiques, des politiques publiques et des préoccupations environnementales. 
+Les scénarios prospectifs de la FAO et de l’OCDE (2020) anticipent un ralentissement de la croissance de la consommation de viande rouge dans les pays développés, tandis que la volaille continuerait de progresser en raison de son coût relatif et de son empreinte carbone plus faible. 
+Les analyses statistiques appliquées aux séries temporelles américaines montrent ainsi des ruptures structurelles associées aux chocs économiques et réglementaires, justifiant l’utilisation de modèles économétriques pour prévoir la consommation future (Zheng, 2008).
+
+Dans ce contexte, la construction d’un modèle de prédiction de la consommation de viande aux États-Unis s’inscrit dans une double perspective : comprendre les déterminants économiques et structurels de la demande, et anticiper les évolutions futures dans un environnement marqué par l’incertitude des prix, les transitions nutritionnelles et les contraintes environnementales. 
+Une approche économétrique rigoureuse, fondée sur les données historiques, constitue ainsi un outil pertinent d’aide à la décision pour les acteurs publics et privés du secteur agroalimentaire.
+
+Bentley J., (2017), U.S. per capita availability of total red meat, poultry, and fish down from 2007, Food Consumption and Demande, https://www.ers.usda.gov/data-products/charts-of-note/chart-detail?chartId=82559
+
+Erol, E., & Saghaian, S. H. (2022). The COVID-19 Pandemic and Dynamics of Price Adjustment in the U.S. Beef Sector. Sustainability, 14(8), 4391. https://doi.org/10.3390/su14084391
+
+Glynn T. Tonsor, Jayson L. Lusk, U.S. perspective: Meat demand outdoes meat avoidance, Meat Science, Volume 190, 2022, 108843, ISSN 0309-1740,
+https://doi.org/10.1016/j.meatsci.2022.108843.
+
+Hestermann, Yves Le Yaouanq, Nicolas Treich, An economic model of the meat paradox, European Economic Review, Volume 129, 2020, 103569, ISSN 0014-2921,
+https://doi.org/10.1016/j.euroecorev.2020.103569.
+
+Luke, J. R., Tonsor, G. T., & Schroeder, T. C. (2026). U.S. meat demand elasticity estimates: using publicly available data versus scanner data. Agricultural and Resource Economics Review, 1–20. doi:10.1017/age.2025.10020
+
+OCDE/FAO (2020), Perspectives agricoles de l'OCDE et de la FAO 2020-2029, Éditions OCDE, Paris, https://doi.org/10.1787/ccc6f09c-fr.
+
+OECD/FAO (2025), OECD-FAO Agricultural Outlook 2025-2034, OECD Publishing, Paris/FAO, Rome, https://doi.org/10.1787/601276cd-en.
+
+Zheng, Hong & Wang, Yang & Zheng, Yan & Zhang, Hongmei & Liang, Shuping & Long, Mei. (2008). Equilibrium, kinetic and thermodynamic studies on the sorption of 4-hydroxyphenol on Cr-bentonite. Chemical Engineering Journal. 143. 117-123. 10.1016/j.cej.2007.12.022. 
