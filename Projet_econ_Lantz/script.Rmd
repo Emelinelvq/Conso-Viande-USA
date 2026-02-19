@@ -168,7 +168,7 @@ qqline(residuals(modele_reel))
 
 #5 - Test de la stabilité temporelle 
 #5 - Test de la stabilité temporelle (Cusum)
->>>>>>> 4f0815820e1a9b80b12d2fccb4bb5ef892518d9c
+
 # Cusum 
 cusum <- efp(CV ~ PIB + Beef_price, data = data_reel, type = "Rec-CUSUM")
 plot(cusum) # On observe une forte rupture de tendance 
@@ -408,11 +408,637 @@ modele_reel_dummy_inter_sojchick <- lm(CV ~ PIB*post2011 + Beef_price*post2011 +
 summary(modele_reel_dummy_inter_sojchick) # je sais pas trop quoi en penser c'est bizarre comme modèle - pas significatif 
 ```
 
+```{r}
+# Modèle avec données réelles - sans soja 
+modele_reel_chick <- lm(CV ~ PIB + Beef_price + prix_poulet, data = data_reel_sojchick) # modèle régression linéaire avec les données en réel
+
+summary(modele_reel_chick)
+CV_pred_reel_sojchick <- predict(modele_reel_sojchick, newx = X_reel_sojchick)
+# r2
+summary(modele_reel_chick)$r.squared       # R² classique
+# 0.9080437
+summary(modele_reel_chick)$adj.r.squared   # R² ajusté (corrige le nombre de variables)
+# 0.8918161
+```
+
+## Bootstrap 
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# 1. On récupère la toute dernière observation réelle (2024)
+last_obs <- CV_USA %>% 
+  filter(Year == 2024) %>% 
+  select(Year, CV)
+
+# 2. On prépare les données de prédiction (2025-2030)
+# (Ici je reprends tes calculs précédents de future_data)
+forecast_data <- future_data %>% 
+  select(Year, CV = CV_real_fit, lwr, upr)
+
+# 3. On crée un dataframe spécifique pour la ligne de prévision 
+# en ajoutant 2024 au début des prévisions
+prediction_line <- data.frame(
+  Year = c(last_obs$Year, forecast_data$Year),
+  CV   = c(last_obs$CV,   forecast_data$CV),
+  lwr  = c(last_obs$CV,   forecast_data$lwr), # On part de la valeur exacte
+  upr  = c(last_obs$CV,   forecast_data$upr)
+)
+
+# 4. Le Graphique corrigé
+ggplot() +
+  # Ligne Historique (arrête en 2024)
+  geom_line(data = history_plot, aes(x = Year, y = CV), color = "black", size = 1) +
+  geom_point(data = history_plot, aes(x = Year, y = CV), color = "black", size = 1.5) +
+  
+  # Ligne de Prédiction (commence en 2024, donc pas de trou)
+  geom_line(data = prediction_line, aes(x = Year, y = CV), color = "#2ecc71", size = 1, linetype = "dashed") +
+  
+  # Ruban d'incertitude (commence aussi en 2024)
+  geom_ribbon(data = prediction_line, aes(x = Year, ymin = lwr, ymax = upr), fill = "#2ecc71", alpha = 0.2) +
+  
+  # Ligne verticale de démarcation
+  geom_vline(xintercept = 2024, linetype = "dotted", color = "red", size = 0.8) +
+  
+  scale_x_continuous(breaks = seq(min(history_plot$Year), 2030, 2)) +
+  labs(title = "Consommation de Viande : Historique et Projection 2030",
+       subtitle = "La prévision est raccordée à la dernière valeur réelle (2024)",
+       x = "Année", y = "Consommation (Valeur Réelle)") +
+  theme_minimal()
+```
+
+## Bootstrap - modèle dynamique 
+```{r}
+library(dplyr)
+library(tidyr)
+
+# Création du décalage (lag) dans les données d'entraînement
+data_dynamique <- data_reel_sojchick %>%
+  mutate(CV_lag = lag(CV)) %>%
+  drop_na() # On enlève la première ligne qui n'a pas de passé
+
+# Estimation du nouveau modèle dynamique
+modele_dyn <- lm(CV ~ CV_lag + PIB + Beef_price + prix_soja + prix_poulet, 
+                 data = data_dynamique)
+
+# On vérifie si Newey-West est toujours nécessaire (souvent le lag réduit l'autocorrélation)
+# coeftest(modele_dyn, vcov = NeweyWest(modele_dyn))
+
+# Initialisation
+forecast_years <- 2025:2030
+n_years <- length(forecast_years)
+last_log_cv <- tail(data_dynamique$CV, 1) # La valeur de 2024
+
+# On prépare les prédicteurs futurs (comme avant)
+future_preds <- data.frame(Year = forecast_years) %>%
+  mutate(
+    PIB = predict(lm(PIB ~ Year, data = data_dynamique), newdata = .),
+    Beef_price = predict(lm(Beef_price ~ Year, data = data_dynamique), newdata = .),
+    prix_soja = predict(lm(prix_soja ~ Year, data = data_dynamique), newdata = .),
+    prix_poulet = predict(lm(prix_poulet ~ Year, data = data_dynamique), newdata = .)
+  )
+
+# Simulation Bootstrap récursive
+n_boot <- 1000
+resid_dyn <- residuals(modele_dyn)
+boot_results <- matrix(NA, nrow = n_boot, ncol = n_years)
+
+set.seed(123)
+for(b in 1:n_boot) {
+  current_lag <- last_log_cv
+  for(t in 1:n_years) {
+    # On construit la ligne de données pour l'année t
+    new_data <- data.frame(
+      CV_lag = current_lag,
+      PIB = future_preds$PIB[t],
+      Beef_price = future_preds$Beef_price[t],
+      prix_soja = future_preds$prix_soja[t],
+      prix_poulet = future_preds$prix_poulet[t]
+    )
+    # Prédiction + un résidu aléatoire
+    pred_t <- predict(modele_dyn, newdata = new_data) + sample(resid_dyn, 1)
+    boot_results[b, t] <- pred_t
+    current_lag <- pred_t # Le résultat devient le lag pour t+1
+  }
+}
+
+# Conversion en réel avec le CPI (comme précédemment)
+mod_cpi <- lm(CPI ~ Year, data = CV_USA)
+future_cpi <- predict(mod_cpi, newdata = data.frame(Year = forecast_years))
+
+boot_real <- t(exp(t(boot_results)) * (future_cpi / 100))
+
+# Synthèse des résultats
+forecast_final <- data.frame(
+  Year = forecast_years,
+  CV = apply(boot_real, 2, median),
+  lwr = apply(boot_real, 2, quantile, 0.025),
+  upr = apply(boot_real, 2, quantile, 0.975)
+)
+
+# Ajout du point de raccord 2024
+raccord <- CV_USA %>% filter(Year == 2024) %>% select(Year, CV) %>% 
+  mutate(lwr = CV, upr = CV)
+plot_data_dyn <- bind_rows(raccord, forecast_final)
+
+# Graphique
+ggplot() +
+  geom_line(data = CV_USA, aes(x = Year, y = CV), color = "black", size = 1) +
+  geom_line(data = plot_data_dyn, aes(x = Year, y = CV), color = "#3498db", linetype = "dashed", size = 1) +
+  geom_ribbon(data = plot_data_dyn, aes(x = Year, ymin = lwr, ymax = upr), fill = "#3498db", alpha = 0.2) +
+  geom_vline(xintercept = 2024, linetype = "dotted") +
+  theme_minimal() +
+  labs(title = "Prévision Dynamique de la Consommation",
+       subtitle = "Modèle avec variable retardée (Inertie de consommation)",
+       y = "Consommation Réelle", x = "Année")
+```
+
+## Rajout variable maïs
+```{r}
+# 1. Ajoute les données à ton dataframe (exemple rapide)
+data_reel_sojchick$prix_mais_nominal <- c(2.06, 2.00, 3.04, 4.20, 4.06, 3.55, 5.18, 
+                                          6.22, 6.89, 4.46, 3.70, 3.61, 3.36, 3.36, 
+                                          3.61, 3.56, 4.53, 6.00, 6.60, 4.80, 4.24)
+
+# 2. Transformation en log-réel
+data_reel_sojchick$prix_mais <- log(data_reel_sojchick$prix_mais_nominal / (data$CPI / 100))
+
+# 3. Nouveau modèle avec Maïs
+modele_mais <- lm(CV ~ CV_lag + PIB + Beef_price + prix_soja + prix_poulet + prix_mais, 
+                  data = data_dynamique)
+```
+
+
+## Prédictions avec scénario 
+```{r}
+future <- data.frame(Year=2025:2030)
+
+last <- tail(data_reel_sojchick, 1)
+
+lastPIB <- last$PIB
+lastBeef <- last$Beef_price
+lastSoja <- last$prix_soja
+lastPoulet <- last$prix_poulet
+
+future$PIB[1] <- lastPIB
+future$Beef_price[1] <- lastBeef
+future$prix_soja[1] <- lastSoja
+future$prix_poulet[1] <- lastPoulet
+
+for(i in 2:nrow(future)){
+  future$PIB[i] <- future$PIB[i-1]*1.02
+  future$Beef_price[i] <- future$Beef_price[i-1]*1.01
+  future$prix_soja[i] <- future$prix_soja[i-1]*1.005
+  future$prix_poulet[i] <- future$prix_poulet[i-1]*0.993
+}
+
+future$CV_pred <- predict(modele, newdata=future)
+future
+
+
+```
+
+
+```{r}
+#test
+last <- tail(data, 1)
+last_soja <- tail(soja,1)
+last_poulet <- tail(poulet,1)
+
+future_lvl <- data.frame(Year=2025:2030)
+
+future_lvl$PIB[1] <- last$PIB
+future_lvl$Population[1] <- last$Population
+future_lvl$CPI[1] <- last$CPI
+future_lvl$Beef_price[1] <- last$Beef_price
+future_lvl$prix_soja[1] <- last_soja$prix_soja
+future_lvl$prix_poulet[1] <- last_poulet$prix_poulet
+
+for(i in 2:nrow(future_lvl)){
+  future_lvl$PIB[i] <- future_lvl$PIB[i-1]*1.02        # +2%
+  future_lvl$Population[i] <- future_lvl$Population[i-1]*1.02  # +2%
+  future_lvl$CPI[i] <- future_lvl$CPI[i-1]*1.03       # +3%
+  
+  future_lvl$Beef_price[i] <- future_lvl$Beef_price[i-1]*0.99    # -1% par an
+  future_lvl$prix_soja[i] <- future_lvl$prix_soja[i-1]*0.998      # légèrement diminuer
+  future_lvl$prix_poulet[i] <- future_lvl$prix_poulet[i-1]*0.993  # -0,7% par an, ok si tu veux diminuer
+}
+
+
+future <- data.frame(
+PIB = log(future_lvl$PIB/(future_lvl$Population*(future_lvl$CPI/100))),
+Beef_price = log(future_lvl$Beef_price/(future_lvl$CPI/100)),
+prix_soja = log(future_lvl$prix_soja/(future_lvl$CPI/100)),
+prix_poulet = log(future_lvl$prix_poulet/(future_lvl$CPI/100))
+)
+
+modele_predict_sdummy <- lm(
+  CV ~ PIB + Beef_price + prix_soja + prix_poulet,
+  data = data_reel_sojchick
+)
+
+pred_log <- predict(modele_predict_sdummy, newdata=future)
+
+CV_pred <- exp(pred_log) * (future_lvl$CPI/100)
+
+pred <- predict(modele_predict_sdummy, newdata = future, interval = "prediction")
+# fit  -> valeur centrale
+# lwr  -> borne basse
+# upr  -> borne haute
+
+CV_fit <- exp(pred[, "fit"]) * (future_lvl$CPI/100)
+CV_lwr <- exp(pred[, "lwr"]) * (future_lvl$CPI/100)
+CV_upr <- exp(pred[, "upr"]) * (future_lvl$CPI/100)
+
+plot_data <- data.frame(
+  Year = future_lvl$Year,
+  fit = CV_fit,
+  lwr = CV_lwr,
+  upr = CV_upr
+)
+
+library(ggplot2)
+
+ggplot(plot_data, aes(x = Year, y = fit)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin=lwr, ymax=upr), alpha = 0.2) +
+  labs(
+    title = "Prévision de la consommation de viande",
+    y = "Consommation (niveau)",
+    x = "Année"
+  ) +
+  theme_minimal()
+
+hist <- data.frame(
+  Year = data$Year,
+  CV = data$CV
+)
+
+ggplot() +
+  geom_line(data=hist, aes(Year, CV)) +
+  geom_line(data=plot_data, aes(Year, fit)) +
+  geom_ribbon(data=plot_data, aes(Year, ymin=lwr, ymax=upr), alpha=0.2) +
+  theme_minimal()
+
+```
+
+```{r}
+library(dplyr)
+
+# -----------------------------
+# 1️⃣ Création du dataframe futur
+# -----------------------------
+years <- 2023:2030  # horizon 2030
+n_years <- length(years)
+
+# Valeurs de départ à partir de la dernière année réelle
+last_row <- tail(data_reel_sojchick, 1)
+
+future_lvl <- data.frame(
+  year = years,
+  PIB = NA,
+  Population = NA,
+  CPI = NA,
+  Beef_price = NA,
+  prix_soja = NA,
+  prix_poulet = NA,
+  post2011 = 1  # toutes les années >2011
+)
+
+# Initialisation avec la dernière année réelle
+future_lvl[1, c("PIB", "Population", "CPI", "Beef_price", "prix_soja", "prix_poulet")] <- 
+  last_row[c("PIB", "Population", "CPI", "Beef_price", "prix_soja", "prix_poulet")]
+
+# -----------------------------
+# 2️⃣ Définition des scénarios annuels
+# -----------------------------
+scenarios <- list(
+  central = list(PIB = 1.02, Population = 1.02, CPI = 1.03, 
+                 Beef_price = 0.99, prix_soja = 1.0, prix_poulet = 0.993),
+  pessimiste = list(PIB = 1.01, Population = 1.015, CPI = 1.04, 
+                    Beef_price = 1.01, prix_soja = 1.01, prix_poulet = 1.005),
+  optimiste = list(PIB = 1.03, Population = 1.015, CPI = 1.02, 
+                   Beef_price = 0.98, prix_soja = 0.99, prix_poulet = 0.99)
+)
+
+# -----------------------------
+# 3️⃣ Fonction de projection pour un scénario
+# -----------------------------
+proj_future <- function(future_lvl, scenario){
+  for(i in 2:nrow(future_lvl)){
+    future_lvl$PIB[i] <- future_lvl$PIB[i-1] * scenario$PIB
+    future_lvl$Population[i] <- future_lvl$Population[i-1] * scenario$Population
+    future_lvl$CPI[i] <- future_lvl$CPI[i-1] * scenario$CPI
+    future_lvl$Beef_price[i] <- future_lvl$Beef_price[i-1] * scenario$Beef_price
+    future_lvl$prix_soja[i] <- future_lvl$prix_soja[i-1] * scenario$prix_soja
+    future_lvl$prix_poulet[i] <- future_lvl$prix_poulet[i-1] * scenario$prix_poulet
+  }
+  
+  # Transformation log / ajustement CPI & population
+  future_lvl <- future_lvl %>%
+    mutate(
+      PIB_log = log(PIB / (Population * CPI / 100)),
+      Beef_price_log = log(Beef_price / (CPI / 100)),
+      prix_soja_log = log(prix_soja / (CPI / 100)),
+      prix_poulet_log = log(prix_poulet / (CPI / 100))
+    )
+  
+  return(future_lvl)
+}
+
+# -----------------------------
+# 4️⃣ Projeter les 3 scénarios
+# -----------------------------
+future_central <- proj_future(future_lvl, scenarios$central)
+future_pessimiste <- proj_future(future_lvl, scenarios$pessimiste)
+future_optimiste <- proj_future(future_lvl, scenarios$optimiste)
+
+# -----------------------------
+# 5️⃣ Prédiction CV avec le modèle
+# -----------------------------
+future_central$CV_hat <- predict(modele_reel_sojchick, 
+                                 newdata = future_central, 
+                                 interval = "prediction")
+
+future_pessimiste$CV_hat <- predict(modele_reel_sojchick, 
+                                    newdata = future_pessimiste, 
+                                    interval = "prediction")
+
+future_optimiste$CV_hat <- predict(modele_reel_sojchick, 
+                                   newdata = future_optimiste, 
+                                   interval = "prediction")
+
+# -----------------------------
+# 6️⃣ Retransformation pour obtenir la consommation réelle
+# -----------------------------
+retransform <- function(df){
+  df %>%
+    mutate(
+      CV_real = exp(CV_hat[, "fit"]) * (CPI / 100),
+      CV_lower = exp(CV_hat[, "lwr"]) * (CPI / 100),
+      CV_upper = exp(CV_hat[, "upr"]) * (CPI / 100)
+    )
+}
+
+future_central <- retransform(future_central)
+future_pessimiste <- retransform(future_pessimiste)
+future_optimiste <- retransform(future_optimiste)
+
+# -----------------------------
+# 7️⃣ Résultat final : tableau des 3 scénarios
+# -----------------------------
+library(tidyr)
+library(ggplot2)
+
+# Combiner pour visualisation
+all_future <- bind_rows(
+  future_central %>% mutate(scenario = "central"),
+  future_pessimiste %>% mutate(scenario = "pessimiste"),
+  future_optimiste %>% mutate(scenario = "optimiste")
+)
+
+# Graphique simple
+ggplot(all_future, aes(x = year, y = CV_real, color = scenario)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = CV_lower, ymax = CV_upper, fill = scenario), alpha = 0.2) +
+  labs(title = "Projection consommation de viande jusqu'en 2030",
+       y = "Consommation de viande (ajustée CPI)",
+       x = "Année") +
+  theme_minimal()
+
+
+library(ggplot2)
+library(dplyr)
+
+# -----------------------------
+# Préparer les données historiques
+# -----------------------------
+historical <- data_reel_sojchick %>%
+  mutate(
+    CV_real = exp(CV) * (CPI / 100),  # remettre sur l’échelle réelle
+    scenario = "historique",
+    CV_lower = NA,
+    CV_upper = NA
+  ) %>%
+  select(Year, CV_real, CV_lower, CV_upper, scenario)
+
+# -----------------------------
+# Combiner avec les projections
+# -----------------------------
+all_future_combined <- bind_rows(historical, all_future)
+
+# -----------------------------
+# Graphique avec historique + projections
+# -----------------------------
+ggplot(all_future_combined, aes(x = year, y = CV_real, color = scenario)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = CV_lower, ymax = CV_upper, fill = scenario), alpha = 0.2) +
+  labs(
+    title = "Consommation de viande : historique et projections jusqu'en 2030",
+    y = "Consommation de viande (ajustée CPI)",
+    x = "Année"
+  ) +
+  scale_color_manual(values = c(
+    "historique" = "black",
+    "central" = "blue",
+    "pessimiste" = "red",
+    "optimiste" = "green"
+  )) +
+  scale_fill_manual(values = c(
+    "central" = "blue",
+    "pessimiste" = "red",
+    "optimiste" = "green"
+  )) +
+  theme_minimal()
+
+
+```
+
+## Bootstrap 2
+```{r}
+library(dplyr)
+library(ggplot2)
+
+set.seed(123)
+n_boot <- 1000  # nombre de rééchantillonnages
+
+# -----------------------------
+# 1️⃣ Préparer les données historiques
+# -----------------------------
+historical <- data_reel_sojchick %>%
+  mutate(
+    CV_real = exp(CV) * (CPI / 100),  # remise à l'échelle réelle
+    scenario = "historique",
+    CV_lower_boot_real = NA,
+    CV_upper_boot_real = NA
+  ) %>%
+  select(Year, CV_real, CV_lower_boot_real, CV_upper_boot_real, scenario)
+
+# -----------------------------
+# 2️⃣ Fonction bootstrap pour un scénario
+# -----------------------------
+bootstrap_scenario <- function(future_lvl, scenario, n_boot = 1000) {
+  # Appliquer les hypothèses de croissance
+  for(i in 2:nrow(future_lvl)){
+    future_lvl$PIB[i] <- future_lvl$PIB[i-1] * scenario$PIB
+    future_lvl$Population[i] <- future_lvl$Population[i-1] * scenario$Population
+    future_lvl$CPI[i] <- future_lvl$CPI[i-1] * scenario$CPI
+    future_lvl$Beef_price[i] <- future_lvl$Beef_price[i-1] * scenario$Beef_price
+    future_lvl$prix_soja[i] <- future_lvl$prix_soja[i-1] * scenario$prix_soja
+    future_lvl$prix_poulet[i] <- future_lvl$prix_poulet[i-1] * scenario$prix_poulet
+  }
+  
+  # Transformation log / ajustement CPI & pop
+  future_lvl <- future_lvl %>%
+    mutate(
+      PIB_log = log(PIB / (Population * CPI / 100)),
+      Beef_price_log = log(Beef_price / (CPI / 100)),
+      prix_soja_log = log(prix_soja / (CPI / 100)),
+      prix_poulet_log = log(prix_poulet / (CPI / 100))
+    )
+  
+  # -----------------------------
+  # Bootstrap des résidus
+  # -----------------------------
+  resid_model <- residuals(modele_reel_sojchick)
+  fitted_model <- fitted(modele_reel_sojchick)
+  
+  boot_pred <- matrix(NA, nrow = nrow(future_lvl), ncol = n_boot)
+  
+  for(b in 1:n_boot){
+    boot_resid <- sample(resid_model, size = nrow(future_lvl), replace = TRUE)
+    boot_pred[, b] <- predict(modele_reel_sojchick, newdata = future_lvl) + boot_resid
+  }
+  
+  future_lvl <- future_lvl %>%
+    mutate(
+      CV_hat_real = exp(predict(modele_reel_sojchick, newdata = future_lvl)) * (CPI / 100),
+      CV_lower_boot_real = exp(apply(boot_pred, 1, quantile, probs = 0.025)) * (CPI / 100),
+      CV_upper_boot_real = exp(apply(boot_pred, 1, quantile, probs = 0.975)) * (CPI / 100)
+    )
+  
+  return(future_lvl)
+}
+
+# -----------------------------
+# 3️⃣ Définir les scénarios
+# -----------------------------
+scenarios <- list(
+  central = list(PIB = 1.02, Population = 1.02, CPI = 1.03, 
+                 Beef_price = 0.99, prix_soja = 1.0, prix_poulet = 0.993),
+  pessimiste = list(PIB = 1.01, Population = 1.015, CPI = 1.04, 
+                    Beef_price = 1.01, prix_soja = 1.01, prix_poulet = 1.005),
+  optimiste = list(PIB = 1.03, Population = 1.015, CPI = 1.02, 
+                   Beef_price = 0.98, prix_soja = 0.99, prix_poulet = 0.99)
+)
+
+# -----------------------------
+# 4️⃣ Créer future_lvl initial
+# -----------------------------
+years <- 2023:2030
+last_row <- tail(data_reel_sojchick, 1)
+
+future_lvl_base <- data.frame(
+  year = years,
+  PIB = last_row$PIB,
+  Population = last_row$Population,
+  CPI = last_row$CPI,
+  Beef_price = last_row$Beef_price,
+  prix_soja = last_row$prix_soja,
+  prix_poulet = last_row$prix_poulet,
+  post2011 = 1  # toutes > 2011
+)
+
+# -----------------------------
+# 5️⃣ Générer projections bootstrap
+# -----------------------------
+future_central <- bootstrap_scenario(future_lvl_base, scenarios$central, n_boot)
+future_pessimiste <- bootstrap_scenario(future_lvl_base, scenarios$pessimiste, n_boot)
+future_optimiste <- bootstrap_scenario(future_lvl_base, scenarios$optimiste, n_boot)
+
+# Ajouter la colonne scenario
+future_central$scenario <- "central"
+future_pessimiste$scenario <- "pessimiste"
+future_optimiste$scenario <- "optimiste"
+
+# -----------------------------
+# 6️⃣ Combiner historique et projections
+# -----------------------------
+all_future_combined <- bind_rows(historical, future_central, future_pessimiste, future_optimiste)
+
+# -----------------------------
+# 7️⃣ Graphique
+# -----------------------------
+ggplot(all_future_combined, aes(x = year, y = CV_hat_real, color = scenario)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = CV_lower_boot_real, ymax = CV_upper_boot_real, fill = scenario), alpha = 0.2) +
+  labs(
+    title = "Consommation de viande : historique et projections jusqu'en 2030 (bootstrap)",
+    y = "Consommation de viande (ajustée CPI)",
+    x = "Année"
+  ) +
+  scale_color_manual(values = c(
+    "historique" = "black",
+    "central" = "blue",
+    "pessimiste" = "red",
+    "optimiste" = "green"
+  )) +
+  scale_fill_manual(values = c(
+    "central" = "blue",
+    "pessimiste" = "red",
+    "optimiste" = "green"
+  )) +
+  theme_minimal()
+
+
+```
+
 #Partie 4
 #Réussir à trouver comment obtenir des prévisions jusqu'à 2030 pour pouvoir faire nos prévision avec ce super modèle au R² dégueu !
 # Lucie - je pense que peut-être on peut regarder au moins des prévisions de l'état américain 
 #sur qqs variables qui vont nous permettre de dire au modèle dans quel direction il faut aller
- 
+
+# Scénarios Gémini 
+```{r}
+# Création d'un dataframe pour 2025-2030
+ans_futurs <- 2025:2030
+n_ans <- length(ans_futurs)
+
+# On prend la dernière valeur connue (2024) comme base
+last_val <- tail(data_reel_sojchick, 1)
+
+data_2030 <- data.frame(
+  Year = ans_futurs,
+  PIB = last_val$PIB + cumsum(rep(0.02, n_ans)), # +2% par an en log
+  Beef_price = last_val$Beef_price + cumsum(rep(0.01, n_ans)),
+  prix_soja = last_val$prix_soja + cumsum(rep(-0.005, n_ans)),
+  prix_poulet = last_val$prix_poulet + cumsum(rep(0.01, n_ans))
+)
+
+library(sandwich)
+library(lmtest)
+
+# Calcul des prédictions ponctuelles
+preds_point <- predict(modele_reel_sojchick, newdata = data_2030)
+
+# Calcul manuel de l'intervalle de confiance avec la matrice Newey-West
+X_futur <- model.matrix(~ PIB + Beef_price + prix_soja + prix_poulet, data = data_2030)
+V_cov <- NeweyWest(modele_reel_sojchick, lag = 1)
+se_preds <- sqrt(diag(X_futur %*% V_cov %*% t(X_futur)))
+
+# Assemblage
+data_2030$CV_pred <- preds_point
+data_2030$lwr <- preds_point - 1.96 * se_preds
+data_2030$upr <- preds_point + 1.96 * se_preds
+
+ggplot(data_2030, aes(x = Year, y = exp(CV_pred))) +
+  geom_line(color = "blue", size = 1) +
+  geom_ribbon(aes(ymin = exp(lwr), ymax = exp(upr)), fill = "blue", alpha = 0.2) +
+  labs(title = "Prévision de la Consommation de Viande (Réel) - Horizon 2030",
+       subtitle = "Intervalles basés sur la correction de Newey-West",
+       y = "Consommation (Niveau réel)", x = "Année") +
+  theme_minimal()
+```
 
 
 
