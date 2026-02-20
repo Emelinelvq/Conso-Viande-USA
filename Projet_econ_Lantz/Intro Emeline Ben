@@ -4,6 +4,18 @@ Mais la viande est également devenue sujette à de nombreuses controverses. Son
 Il existe également une forte hétérogénéité internationale dans la consommation de viande, liée à des facteurs culturels, religieux et économiques. Les États Unis se distinguent par une consommation par habitant parmi les plus élevées au monde, même si cette tendance semble montrer un certain ralentissement (OCDE/FAO, 2024). Ce constat s’inscrit dans une dynamique plus générale des pays développés : après des décennies de croissance, la consommation de viande atteint un plateau, voire amorce une stabilisation (USDA, 2025). 
 Étudier la consommation de viande aux États Unis permet ainsi de mieux comprendre ces mutations. Ce projet cherche à expliquer les déterminants économiques de cette consommation entre 2004 et 2024 (en mobilisant différentes bases de données macroéconomiques), puis à modéliser des scénarios de prévision jusqu’en 2030. Nous estimerons dans un premier temps une fonction de demande agrégée de viande, avant de proposer dans un second temps une projection prospective afin d’analyser les trajectoires de consommation à moyen terme. 
 
+
+
+
+Nous observons une rupture de la stabilité temporelle en 2011. S’il n’existe pas de cause évidente permettant d’expliquer cette rupture, la littérature scientifique nous permet d’avancer cependant une hypothèse principale, qu’il serait intéressant de développer dans de prochains travaux. 2011 constitue en effet une année de crise majeure pour les cultures céréalières dûe notamment à des conditions climatiques difficiles, impliquant des fortes incertitudes sur les récoltes, et donc une hausse forte des prix des céréales (Les Echos, 2011; FAO, 2011). Cette période de tension semble avoir marqué en profondeur les marchés agricoles américains et pourrait avoir des conséquences plus structurelles sur l’élevage, expliquant ainsi nos résultats. 
+
+Source : 
+Les Echos, 2011 « Les tensions persistent sur le front des céréales »  
+https://www.lesechos.fr/2011/08/les-tensions-persistent-sur-le-front-des-cereales-397973
+FAO, 2011 Food Outlook 2011
+https://www.fao.org/4/al978e/al978e00.pdf
+
+
 Sources : 
 
 Charal (2026), Espace nutrition du site internet
