@@ -1,0 +1,399 @@
+---
+title: "Projet Econométrie_Conso Viande USA"
+author: "Emeline, Benoit"
+date: "2026-02-20"
+output: html_document
+---
+# Introduction
+
+La consommation de viande constitue un enjeu économique majeur aux États Unis, tant du point de vue des ménages que des politiques agricoles et environnementales. Le secteur de la viande représente une part importante de l’agriculture américaine : il pesait en 2024 plus de 200 milliards de dollars (USDA, 2024) et influence les revenus agricoles, mais aussi les prix alimentaires et les échanges commerciaux.
+
+La consommation de viande a longtemps été perçue comme un symbole de richesse et de réussite socio-économique, même si cette relation tend à s’atténuer dans les pays développés (OCDE-FAO, 2023). Aujourd’hui, son rôle nutritionnel, en particulier son apport en protéines, est de plus en plus mis en avant par les acteurs du secteur. La récente campagne de Charal en France (Charal, 2026) illustre par exemple que la marque positionne la viande comme une source essentielle de protéines, plutôt que comme un produit de prestige.
+
+Mais la viande est également devenue sujette à de nombreuses controverses. Son impact sur le bien être animal, sur les émissions de gaz à effet de serre et sur la biodiversité alimente de plus en plus le débat public, et comme le souligne de nombreux travaux de l’INRAE (Mano, Axelos, Peyraud, Dupraz, Veissier, et al., 2018), une réduction de la consommation de viande pourrait contribuer significativement aux objectifs climatiques agricoles. Ces considérations environnementales s’ajoutent à des évolutions de comportement de consommation, marquées par l’émergence d’alternatives végétales par exemple (Guéguen et al., 2016). 
+
+Il existe également une forte hétérogénéité internationale dans la consommation de viande, liée à des facteurs culturels, religieux et économiques. Les États Unis se distinguent par une consommation par habitant parmi les plus élevées au monde, même si cette tendance semble montrer un certain ralentissement (OCDE/FAO,2024). Ce constat s’inscrit dans une dynamique plus générale des pays développés: après des décennies de croissance, la consommation de viande atteint un plateau, voire amorce une stabilisation (USDA, 2025). 
+Étudier la consommation de viande aux États Unis permet ainsi de mieux comprendre ces mutations. Ce projet cherche à expliquer les déterminants économiques de cette consommation entre 2004 et 2024 (en mobilisant différentes bases de données macroéconomiques), puis à modéliser des scénarios de prévision jusqu’en 2030. Nous estimerons dans un premier temps une fonction de demande agrégée de viande, avant de proposer dans un second temps une projection prospective afin d’analyser les trajectoires de consommation à moyen terme. 
+
+
+
+## Préparation de la session R 
+```{r, include=FALSE}
+# Ouverture des librairies 
+# Spécificité du package readxl
+#remove.packages("readxl")
+#install.packages("readxl", type = "source")
+
+# Installation des librairies
+#install.packages("lmtest")
+#install.packages("tseries")
+#install.packages("glmnet")
+
+library(readxl)
+library(lmtest)
+library(tseries)
+library(glmnet)
+library(strucchange)
+library(sandwich)
+library(car)
+library(tseries)
+library(tidyverse)
+```
+
+## Importer et préparer les données
+Les données utilisées sont annuelles et couvrent la période 2004–2024. La consommation de viande est issue de l’USDA Economic Research Service (ERS), qui fournit des statistiques détaillées sur les produits animaux aux États-Unis.  
+Les données de PIB et de population proviennent de la Banque mondiale (World Bank).  
+L’indice des prix à la consommation ainsi que le prix moyen du bœuf sont extraits de la base FRED de la Federal Reserve Bank of St. Louis.
+L’utilisation de sources institutionnelles garantit la fiabilité et la cohérence des séries statistiques employées dans l’analyse économétrique. 
+La consommation de viande est mesurée en milliards de livres (retail equivalent of disappearance). Les variables explicatives incluent le PIB, la population, l’indice des prix à la consommation et le prix moyen du bœuf.
+
+```{r, include=FALSE}
+# Données chargées manuellement
+data <- read_excel("CV_USA.xlsx")
+head(data)
+
+# Convertir Year en variable numérique
+data$Year <- as.numeric(data$Year)
+```
+
+## Transformation logarithmique et en réel 
+Nous avons décidé de passer en log-log afin de capturer les élasticités-revenu et prix. Par ailleurs, nous avons transformé les prix nominaux en prix réels (déflaté par l'indice des prix) afin de neutraliser l'impact de l'inflation, ce qui nous semble indispensable dans le cadre d'une analyse de long-terme. 
+
+```{r, include=FALSE}
+# Transformation logarithmique (pour obtenir des élasticités + hypothèse de normalité + hypothèse de variance constante)
+data_log <- data
+data_log$CV <- log(data$CV)
+data_log$PIB <- log(data$PIB)
+data_log$Population <- log(data$Population)
+data_log$CPI <- log(data$CPI)
+data_log$Beef_price <- log(data$Beef_price)
+```
+
+
+Voici un graphique de la consommation de viande en logaritme sur le période de 2004 à 2024 : 
+
+```{r, include = FALSE}
+#plot(data_log$Year, data_log$CV, type="l", main="Log consommation de viande") # grosse chute de la consommation de viande en 2015. Pourquoi ? Comment est-ce qu'on l'explique ?
+```
+
+```{r, echo = FALSE}
+# Passage en prix réels
+data_reel <- data
+data_reel$CV <- log(data$CV)
+data_reel$PIB <- log(data$PIB/(data$Population*(data$CPI/100)))
+data_reel$Beef_price <- log(data$Beef_price/(data$CPI/100))
+```
+
+```{r, include = FALSE}
+plot(data_reel$Year, data_reel$CV, type="l", main="Reel consommation de viande")
+ggplot(data_reel, aes(x = Year, y = CV)) +
+  # Ligne principale
+  geom_line(color = "#2c3e50", linewidth = 1) +
+  # Points pour marquer chaque année
+  geom_point(color = "#34495e", size = 2, alpha = 0.7) +
+  # Titres et labels
+  labs(
+    title = "Consommation réelle de viande de bœuf",
+    subtitle = "Série temporelle 2004-2024 (Logarithmes)",
+    x = "Années",
+    y = "log(Consommation réelle)",
+    caption = "Note : Les données sont exprimées en logarithmes de valeurs réelles."
+  ) +
+  # Thème professionnel
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", color = "#1a252f"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(), # On épure l'axe X pour plus de clarté
+    axis.title = element_text(face = "italic"),
+    axis.line = element_line(color = "#bdc3c7")
+  )
+```
+On observe une baisse de la consommation de viande entre 2008 et 2015, cette baisse s'explique très probablement par la récession qui a touché les USA en 2008. A partir de 2015, on observe une augmentation assez régulière de la consommation de boeuf, et ce jusqu'en 2024. 
+
+```{r, include=FALSE}
+#mettons tout ce joli monde dans une matrice
+X_reel <- model.matrix(CV ~ PIB +  Beef_price, data = data_reel)[, -1]
+CV_reel <- data_reel$CV
+```
+
+
+## Création du modèle de régression 
+Nous allons maintenant essayer d'expliquer cette rupture de 2015 avec un modèle de régression log-log. 
+
+```{r}
+# Modèle de régression log-log avec prix réels
+
+modele_reel <- lm(CV ~ PIB + Beef_price, data = data_reel) 
+
+summary(modele_reel)
+
+```
+On obtient ici un R2 assez faible, nous allons donc essayer d'ajuster le modèle, notamment via l'ajout de variables
+
+
+## Ajout données prix soja et poulet
+Nous avons décidé de rajouter comme variable le prix du soja (global price of soybean) et du poulet (prix moyen global ou américain pour le poulet?) car nos résultats précédents ne nous satisfaisaient pas. Les données proviennent de la Federal Reserve Bank of St. Louis. De même, on convertit les prix en termes réels.
+```{r, include=FALSE}
+# Importation 
+moyenne_prix_soja <- read_excel("moyenne prix soja.xlsx")
+chicken_data <- read_excel("chicken data.xlsx")
+
+soja <- moyenne_prix_soja %>%
+  rename(prix_soja = `global price of soybeans`)
+
+poulet <- chicken_data %>%
+  mutate(Year = année) %>%
+  select(-année) %>%
+  rename(prix_poulet = `chicken avg price`)
+
+soja$Year   <- as.numeric(soja$Year)
+soja$prix_soja   <- as.numeric(soja$prix_soja)
+poulet$Year <- as.numeric(poulet$Year)
+data$Year   <- as.numeric(data$Year)
+
+# Passage des variables soja et poulet en variables réelles 
+data_log_sojchick <- soja %>%
+  inner_join(poulet, by = "Year") %>%
+  inner_join(data, by = "Year")
+
+data_log_sojchick$CV <- log(data$CV)
+data_log_sojchick$PIB <- log(data$PIB)
+data_log_sojchick$Population <- log(data$Population)
+data_log_sojchick$CPI <- log(data$CPI)
+data_log_sojchick$Beef_price <- log(data$Beef_price)
+data_log_sojchick$prix_soja <- log(soja$prix_soja)
+data_log_sojchick$prix_poulet <- log(poulet$prix_poulet)
+```
+
+
+
+```{r, include=FALSE}
+# Variable réel plutôt que nominal
+data_reel_sojchick <- data_log_sojchick
+data_reel_sojchick$CV <- log(data$CV) #attention à ne pas déflater
+data_reel_sojchick$PIB <- log(data$PIB/(data$Population*(data$CPI/100)))
+data_reel_sojchick$Beef_price <- log(data$Beef_price/(data$CPI/100))
+data_reel_sojchick$prix_soja <- log(soja$prix_soja/(data$CPI/100))
+data_reel_sojchick$prix_poulet <- log(poulet$prix_poulet/(data$CPI/100))
+
+#mettons tout ce joli monde dans une matrice
+X_reel_sojchick <- model.matrix(CV ~ PIB +  Beef_price + prix_soja + prix_poulet, data = data_reel_sojchick)[, -1]
+CV_reel_sojchick <- data_reel_sojchick$CV
+```
+
+On crée un nouveau modèle log-log avec ces variables
+```{r}
+
+# Modèle avec prix réels
+modele_reel_sojchick <- lm(CV ~ PIB + Beef_price + prix_soja + prix_poulet, data = data_reel_sojchick) # modèle régression linéaire avec les données en réel
+
+summary(modele_reel_sojchick)
+
+```
+
+
+```{r, include=FALSE}
+#PK CALCULER LE R2 ? est ce que c'est juste pour vérification ? pcq on l'a dans le summary autrement 
+CV_pred_reel_sojchick <- predict(modele_reel_sojchick, newx = X_reel_sojchick)
+r2 <- 1 - sum((CV_reel_sojchick - CV_pred_reel_sojchick)^2) / sum((CV_reel_sojchick - mean(CV_reel_sojchick))^2)
+
+
+```
+
+# Différents tests et ajustement du modèle 
+On teste dans un premier temps la stabilité temporelle. L'idée est de déterminer si des chocs exogènes ou des changements structurels de consommation sont survenus et auraient alors modifié les comportements des consommateurs et les relations économiques. 
+Au vu du changement de tendance qui apparait en 2015, il se pourrait qu'il y ait un véritable changement structurel dans le comportement des consommateurs autour de l'année 2015.  
+
+On commence par un test de Cusum square afin de déterminer s'il y a une rupture et la date de cette rupture le cas échéant. 
+
+```{r}
+## Problèmes et tests
+#1 Stabilité temporelle
+
+# Cusum square
+
+y <- as.matrix(data_reel_sojchick$CV) # variable expliquée 
+X <- cbind(
+  1,                       # constante
+  data_reel_sojchick$PIB,            # on ajoute les variables explicatives 
+  data_reel_sojchick$Beef_price,
+  data_reel_sojchick$prix_poulet,
+  data_reel_sojchick$prix_soja
+)
+w <- recresid(y, X)       # résidus récursifs
+CUSUMSQ <- cumsum(w^2) / sum(w^2) # construction du cusumsq
+nrow(X) == length(y) # check de sécurité --> TRUE donc c'est bon pas de problème de longueur ou de NA 
+X <- as.matrix(X)
+y <- as.matrix(y)
+
+# Visualisation graphique 
+plot(CUSUMSQ,
+     type = "l",
+     lwd = 2,
+     ylab = "CUSUM of Squares",
+     xlab = "Temps",
+     main = "Test CUSUMSQ – Stabilité du modèle")
+abline(h = c(0.05, 0.95), lty = 2, col = "red")
+
+
+# Test adaptaion code cours 
+n <- nrow(X)  # nombre d'observations
+k <- ncol(X)-1
+# Résidus récursifs
+rr <- recresid(y, X)
+
+# Carrés
+rr2 <- rr^2
+
+# Somme des carrés totale (pour normaliser)
+scr <- sum(rr2)
+
+# Statistique cumulé (r_s)
+cumrr <- cumsum(rr2)/scr
+
+# Indices
+nk1 <- n - k - 1
+kp2 <- k + 2
+t1 <- 1:nk1
+t2 <- (kp2):n
+
+# Valeur critique c0 (exemple pour alpha=0.05)
+c0 <- 0.18915  # à adapter si n ou k change
+
+# Limites inférieure et supérieure
+smin <- ((t2 - k) / (n - k)) - c0
+smax <- ((t2 - k) / (n - k)) + c0
+
+# On aligne les longueurs
+cumrr_trunc <- cumrr[kp2:n]  # pour que cumrr, smin et smax aient même longueur
+
+cusum2 <- cbind(smin, cumrr_trunc, smax)
+
+# Graphique final
+matplot(t2, cusum2, type = "l", lty = 1, col = c("red", "black", "red"),
+        xlab = "Observations", ylab = "CUSUMSQ",
+        main = "Test CUSUM of Squares")
+legend("topleft", legend=c("smin","cumrr","smax"),
+       col=c("red","black","red"), lty=1)
+
+```
+
+La courbe ne reste en pas entre les bornes, elle sort en 2011. Cela veut dire qu'il y a une instabilité temporelle liée à une rupture structurelle donc au moins un coefficient change dans le temps. Une rupture temporelle aurait eu lieu en 2011
+
+
+```{r, include = FALSE}
+
+#jsp quoi faire de ce test
+cusum <- efp(CV ~ PIB + Beef_price + prix_soja + prix_poulet, data = data_reel_sojchick, type = "Rec-CUSUM")
+#plot(cusum) 
+
+```
+
+On fait ensuite un test de Chow pour vérifier la date de rupture.
+
+```{r}
+
+# Test de chow
+sctest(CV_reel_sojchick ~ X_reel_sojchick, type="Chow", point = 7) 
+
+```
+
+La p-value est inférieure à 0,05, on observe donc bien une rupture temporelle en 2011
+
+On ajoute donc une dummy pour corriger l'instabilité temporelle.
+
+```{r}
+
+# On corrige encore avec la dummy pour 2011
+
+# Création d’une variable dummy : 0 avant 2011, 1 à partir de 2011
+data_reel_sojchick$post2011 <- ifelse(data_reel_sojchick$Year >= 2011, 1, 0)
+modele_reel_sojchick_dummy <- lm(CV ~ PIB + Beef_price + post2011 + prix_soja + prix_poulet, 
+                      data = data_reel_sojchick)
+summary(modele_reel_sojchick_dummy) 
+
+# r2
+summary(modele_reel_sojchick_dummy)$r.squared       # R² classique
+
+summary(modele_reel_sojchick_dummy)$adj.r.squared   # R² ajusté (corrige le nombre de variables)
+
+
+```
+
+L'ajout de Dummy permet d'augmenter la significativité du modèle, notamment avec un R² augmenté. On remarque également que la dummy est très significative. Nous avons donc décidé de continuer avec ce modèle.
+
+
+```{r}
+
+#2 - Test d'autocorrélation d'ordre 1 (Durbin-Watson)
+dwtest(modele_reel_sojchick_dummy) 
+
+```
+
+On obtient une valeur de DW inférieure à 2 et une p-value inférieure à 0.05, il y a donc une autocorrélation positive. 
+
+
+```{r}
+
+#3 - Test hétéroscédasticité (Breusch-Pagan)
+bptest(modele_reel_sojchick_dummy)
+```
+
+On obtient une p-value inférieure à 0,05 donc nous sommes toujours en présence d'hétéroscédasticité.  
+
+Les tests de diagnostic révélant à la fois une autocorrélation des résidus et une hétéroscédasticité, les erreurs standards sont corrigées selon la méthode de Newey-West afin d’obtenir des estimations robustes.
+
+```{r}
+
+# Correction 
+coeftest(modele_reel_sojchick_dummy, vcov = NeweyWest(modele_reel_sojchick_dummy, lag = 1)) # corrige les erreurs-types pour autocorrélation d’ordre 1 et hétéroscédasticité
+
+```
+
+Après correction des erreurs standards selon la méthode de Newey-West, le PIB, la variable dummy post-2011 et le prix du poulet demeurent significatifs, confirmant la robustesse de ces effets. En revanche, les prix du bœuf et du soja ne présentent pas d’effet statistiquement significatif.
+
+```{r, include=FALSE}
+
+# Visualisation - jsp ce que c'est ça ?
+plot(modele_reel_sojchick, wich = 1) # On observe la tendance à la courbure des résidus ce qui n'est pas optimal
+```
+
+```{r}
+#4 - Test de la multicollinéarité (VIF (Variance Inflation Factor)) 
+vif(modele_reel_sojchick_dummy)
+
+
+```
+
+L'analyse de la colinéarité via les tests VIF montre des scores inférieurs à 10 pour l'ensemble des variables. Nous en concluons que le modèle ne souffre pas de multicolinéarité excessive, ce qui garantit la stabilité des coefficients estimés.
+
+```{r}
+
+#5 - Vérification de la normalité des résidus (Jarque-Bera)
+jarque.bera.test(residuals(modele_reel_sojchick_dummy)) # Les résidus sont normaux 
+
+# Visualisation graphique 
+qqnorm(residuals(modele_reel_sojchick_dummy))
+qqline(residuals(modele_reel_sojchick_dummy)) 
+
+```
+La p-value est très élevée (bien au-dessus de 0,05), donc on ne rejette pas l’hypothèse nulle.
+Autrement dit, les résidus du modèle sont compatibles avec une distribution normale.
+
+
+
+
+
+
+Sources : 
+
+Charal (2026), Espace nutrition du site internet
+https://www.charal.fr/cat-meatlab/nutrition/FAO world food outlook 2024
+INRAE 2023
+Guéguen et al. (2016) Les protéines végétales : contexte et potentiels en alimentation humaine
+https://www.sciencedirect.com/science/article/abs/pii/S0007996016000080
+Mano, Axelos, Peyraud, Dupraz, Veissier, et al. (2018). Consommer de la viande : des enjeux et des impacts multiples. La revue française de la recherche en viandes et produits carnés
+https://hal.inrae.fr/hal-02627345v1/file/Mano%20et%20al%20VPC_1.pdf
+OECD/FAO (2023), Agricultural Outlook 2023 2032
+https://www.oecd.org/en/publications/oecd-fao-agricultural-outlook-2023-2032_08801ab7-en/full-report/executive-summary_5e00d371.html#execsumm-d1e2355-86ae3c52dd
